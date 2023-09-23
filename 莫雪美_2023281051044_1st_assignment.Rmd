@@ -1,0 +1,495 @@
+---
+title: "链家武汉二手房的数据分析报告"
+author: "2023281051044-莫雪美-MEM"
+output:
+  pdf_document:
+    toc: yes
+    toc_depth: 2
+    number_sections: no
+    fig_caption: yes
+    latex_engine: xelatex
+    keep_tex: yes
+  html_document:
+    toc: yes
+    toc_depth: '2'
+    df_print: paged
+  word_document:
+    toc: yes
+    toc_depth: '2'
+documentclass: ctexart
+header-includes:
+- \usepackage{setspace}
+- \setstretch{1.5}
+- \usepackage{geometry}
+- \geometry{a4paper, left=2cm, right=2cm, top=2cm, bottom=2cm}
+---
+
+#一、环境准备
+
+
+```{r setup, include = FALSE,echo = FALSE}
+knitr::opts_chunk$set(echo = FALSE,error = FALSE, warning = FALSE, message = FALSE,
+                      out.width = "100%", split = FALSE, fig.align = "center")
+#load library
+library(tinytex)
+library(tidyverse)
+library(kableExtra)
+library(lubridate)
+library(scales)
+library(plotly)
+library(patchwork)
+library(ggrepel)
+library(showtext)
+showtext_auto(enable = TRUE)
+```
+
+
+
+# 你的主要发现
+
+1. 在售的二手房主要处于远离主城区的偏远位置；
+
+1. 房屋出售价格比较集中，大部分房源的房屋总价主要与房屋面积呈正相关；
+  
+3. 在售房源关注度受多个因素影响，主要体现在房屋所在区域为近主城区，地理位置好，价格处于均价附近的房源。
+    
+
+# 二、数据准备
+
+本报告**链家**数据获取方式如下：
+    
+报告人在2023年9月12日获取了[链家武汉二手房网站](https://wh.lianjia.com/ershoufang/)数据。
+    
+- 链家二手房网站默认显示100页，每页30套房产，因此本数据包括3000套房产信息；
+    
+- 数据包括了页面可见部分的文本信息，具体字段及说明见作业说明。
+
+ **说明：**数据仅用于教学；由于不清楚链家数据的展示规则，因此数据可能并不是武汉二手房市场的随机抽样，结论很可能有很大的偏差，甚至可能是错误的。
+    
+```{r}
+# 载入数据和预处理
+
+lj<-read.csv("D:/MEM_R/1st_assignment_eda-thereMxm/data/2023-09-12_cleaned.csv")
+
+#剔除缺失值
+lj <- distinct(lj)
+
+```
+
+# 二、数据概览
+
+数据表（lj)共包括`r names(lj)`等`r ncol(lj)`个变量,共`r nrow(lj)`行。表的前10行示例如下：
+
+```{r}
+lj %>% 
+  head(10) %>%
+  kable(caption = "武汉链家二手房") %>% 
+  kable_styling()
+```
+
+各变量的简短信息：
+```{r}
+glimpse(lj)
+```
+
+各变量的简短统计：
+```{r}
+summary(lj)
+```
+
+**可以看到：**
+
+- 房屋最低总价为10.6万元，最高房屋总价为1380万元，严重偏离均值；房屋单价最低1771元/平方米，最高44656元/平方米，均价15148元/平方米与中值14404元/平方米较为接近
+
+- 3000套房平均有2.695个房间，平均1.709个客厅，房屋面积平均100.87平方米
+
+- 房屋建筑均高24.22层，最低2层，最高62层，房屋风格有塔楼、板楼、塔板结合，房屋装修风格有：精装、简装、毛坯、其他
+
+- 在该二手房网站的关注人数平均为6.614，最多关注人数为262人，远大于平均值
+
+- 统计了是否近地铁、房本是否满两年、中介是否有钥匙、是否支持VR看房4种外部变量因素
+
+
+
+# 三、探索性分析
+
+## 1.价格特征分析
+
+###(1)房屋总价分布直方图
+```{r}
+#房屋总价直方图
+ggplot(data=lj)+
+  geom_histogram(mapping=aes(x=price_ttl),binwidth = 10)
+```
+
+###(2)房屋均价分布直方图
+
+```{r}
+#房屋均价直方图
+ggplot(data=lj)+
+  geom_histogram(mapping=aes(x=price_sqm),binwidth = 2000)
+```
+
+###(3)房屋面积和房屋总价关系散点图
+```{r}
+
+#房屋面积~房屋总价
+ggplot(data=lj)+
+  geom_point(mapping = aes(x=building_area, y=price_ttl))+        
+  geom_smooth(mapping=aes(x=building_area, y=price_ttl))
+
+
+
+```
+
+
+**发现：**
+
+- 房屋总价主要集中在50万~250万元价格区间，呈现右偏
+
+- 房屋单价主要集中在7000元~20000元价格区间，呈现右偏
+
+- 房屋面积与房屋总价整体呈现正相关，房屋面积约小于150平方米时，二者相关性强，大于约150平方米时相关性减弱。
+
+
+
+## 2.小区所属区位特征分析
+
+```{r}
+#区位特征：出售数量前10个小区的数量及区位分布
+Property_name1<- table(lj$property_name)
+Property_name2<- sort(Property_name1,decreasing = TRUE)
+Property_name_10<- as.data.frame(Property_name2[1:10])
+
+Property_name_10 <- mutate(Property_name_10, "行政区" = c("江岸区","洪山区","江夏区","黄陂区","江夏区","洪山区","江夏区","洪山区","洪山区","江岸区"))
+names(Property_name_10) <- c("小区名称", "在售房屋数", "所在区域")
+kable(Property_name_10)
+
+
+
+
+
+```
+
+**发现：**
+
+- 统计在售的二手房，在售数量前10的小区均大于等于12套房在售
+
+- 在售数量前十的小区大部分位于洪山区、江夏区，地处武汉远城区
+
+
+## 3.房屋属性分析
+
+###(1)户型数据分布条形图
+
+```{r}
+#户型数据清洗
+lj$Layout <- paste0(lj$bedrooms, "室", lj$livingrooms,"厅")
+
+#1.户型-条形图统计
+ggplot(data=lj)+
+  geom_bar(mapping=aes(x=Layout))
+```
+
+
+###(2)朝向及装修分布条形图
+
+```{r}
+#朝向数据清洗
+lj$Directions <- paste0(lj$directions1,  lj$directions2)
+
+#2.朝向及装修分布
+ggplot(lj)+
+  geom_bar(mapping = aes(x = Directions, fill= decoration))
+
+```
+
+
+###(3)楼层及楼型分布条形图
+```{r}
+#3.楼型和楼层分布
+ggplot(lj)+
+  geom_bar(mapping = aes(x = property_style, fill=property_height))
+
+```
+
+
+**发现：**
+
+- 在售房屋户型中，3室2厅在售共1186套远超其他户型，其次是2室2厅、2室1厅
+
+- 在售房屋以朝南、南北朝,共占比81.1%；精装修为主，占比58.7%
+
+- 出售房屋类型以板楼为主，板楼中等楼层出售最多，共计643套，占比25.6%
+
+
+## 4.在售房屋数量与区位的关系
+
+```{r}
+
+#统计区位频数后取前20个区位
+# 计算property_region的频数  
+Region <- table(lj$property_region)  
+
+# 将频数转换为数据框，并按照降序排列  
+Region_df <- as.data.frame(Region)  
+Region_df <- Region_df[order(Region_df$Freq, decreasing = TRUE), ]  
+  
+
+# 取前20个数据  
+Region_df_top20 <- Region_df[1:20, ]
+
+#绘制条形图
+ggplot(data = Region_df_top20, aes(x = reorder(Var1, Freq), y = Freq)) +  
+  geom_bar(stat = "identity")+
+  geom_text(aes(label = sprintf("%1.0f", Freq)), vjust = 1,color = "white") +
+  labs(x = "所属区位", y = "在售数量",title = "二手房在售数量前20的区位分布",labels = Region_df_top20$Freq)
+
+```
+
+
+**发现：**
+
+- 统计在售前20名的区位，白沙洲、盘龙城、新四、光谷栋、金银湖排名前五均属于远离主城区位置，与前面分析的远离主城区小区出售数量较大相呼应。
+
+
+
+## 5.房屋收藏人数的影响因素
+
+###(1)房屋单价与收藏人数的关系
+
+筛选出收藏人数大于10人的房屋数据并求其房屋单价均值
+```{r}
+#筛选出收藏人数大于10的在售房屋，按收藏人数倒序显示
+Fllower<- as.data.frame(filter(lj, followers>10))
+sorted_Fllower <- Fllower[order(Fllower$followers, decreasing = TRUE), ] 
+
+#计算单价均值
+mean(Fllower$price_sqm)
+```
+
+###(2)房屋单价与关注人数的关系分布
+```{r}
+
+ggplot(Fllower)+
+geom_point(mapping = aes(x=price_sqm, y=followers))+    
+  geom_smooth(mapping=aes(x=price_sqm, y=followers))
+
+```
+
+
+
+###(2)房屋总价与关注人数的关系分布
+```{r}
+
+#关注人数~房屋总价
+ggplot(data=lj)+
+  geom_point(mapping = aes(x=price_ttl, y=followers))+    
+  geom_smooth(mapping=aes(x=price_ttl, y=followers))
+```
+
+###(3)是否近地铁与关注人数的关系分布
+```{r}
+#关注人数~否近地铁
+ggplot(data=Fllower)+
+  geom_point(mapping = aes(x=near_subway, y=followers))+        
+  geom_smooth(mapping=aes(x=near_subway, y=followers))
+```
+
+###(4)是否支持随时看房与关注人数的关系分布
+```{r}
+#关注人数~房屋总价+随时看房
+ggplot(data=lj)+
+  geom_point(mapping = aes(x=has_key, y=followers))+        
+  geom_smooth(mapping=aes(x=has_key, y=followers))
+```
+
+
+
+###(5)是否房本满2年与关注人数的关系分布
+
+```{r}
+#关注人数~房屋总价+房本2年
+ggplot(data=lj)+
+  geom_point(mapping = aes(x=if_2y, y=followers))+        
+  geom_smooth(mapping=aes(x=if_2y, y=followers))
+```
+
+
+
+###(6)户型与关注人数的关系分布
+```{r}
+#关注人数~户型
+ggplot(data=lj)+
+  geom_point(mapping = aes(x=Layout, y=followers))+        
+  geom_smooth(mapping=aes(x=Layout, y=followers))
+```
+
+
+###(7)装修与关注人数的关系分布
+```{r}
+#关注人数~装修
+lj_followers_decoration <- lj %>%  
+  group_by(decoration) %>%  
+  summarise( followers_decoration_sum = sum(followers , na.rm = TRUE)) 
+lj_followers_decoration <- lj_followers_decoration[order(lj_followers_decoration$followers_decoration_sum, decreasing = TRUE), ]  
+kable(lj_followers_decoration)
+```
+
+###(8)装修与关注人数的关系分布
+
+```{r}
+#关注人数~户型
+lj_followers_layout <- lj %>%  
+  group_by(Layout) %>%  
+  summarise( followers_sum = sum(followers , na.rm = TRUE)) 
+lj_followers_layout <- lj_followers_layout[order(lj_followers_layout$followers_sum, decreasing = TRUE), ]  
+kable(lj_followers_layout)
+
+
+```
+
+
+###(9)所处区域关注度
+
+收藏数量前10的房源数据分析
+```{r}
+#收藏人数倒叙显示
+sorted_property_Region <- lj[order(lj$followers, decreasing = TRUE), ] 
+#取前收藏数前10的数据
+Property_region_10<- as.data.frame(sorted_property_Region[1:10,])
+
+#加入小区所处行政区
+property_Region_top10 <- mutate(Property_region_10, "所处行政区" = c("汉阳区","武昌区","洪山区","江汉区","武昌区","洪山区","武昌区","江岸区","黄陂区","洪山区"))
+
+property_Region_top10<- property_Region_top10[, c("property_name", "followers", "所处行政区","price_sqm","price_ttl")]
+
+#查看表：小区、收藏人数、所处行政区
+kable(property_Region_top10)
+
+
+```
+
+计算关注度前10的房源平均单价和平均总价
+```{r}
+mean(property_Region_top10$price_sqm)
+mean(property_Region_top10$price_ttl)
+```
+
+
+**发现：**
+
+
+- 价格特征：被收藏较多（定义为收藏人数＞10人）的房屋单价均值为17360.59元/平方米，大部分人关注房价为7000元~15000元每平方米的单价区间；大部分收藏房屋总价集中约在400万元以下，收藏人数与房屋总价无明显关联关系；
+
+- 数据集中绝大部分房屋均近地铁、房本满两年，故均非关注人数的影响因素；支持随时看房的收藏数会更高；
+
+- 收藏数量最多的装修状况是精装修类；
+
+- 关注度最高的二手房户型依次为3室2厅9475人；2室2厅3660人；2室1厅2127人	
+
+- 分析收藏人数最高的前10套房源所处区域多为近主城区的区域,
+
+
+
+
+
+
+## 6.房屋单价和房屋特性的关系
+
+###(1)房屋单价及对应装修状况分布直方图
+```{r}
+#房屋单价直方图+装修
+ggplot(data=lj)+
+  geom_histogram(mapping=aes(x=price_sqm,fill=decoration))
+```
+
+
+###(2)房屋单价及对应楼层分布直方图
+```{r}
+#房屋单价直方图+楼层
+ggplot(data=lj)+
+  geom_histogram(mapping=aes(x=price_sqm,fill=property_height))
+```
+
+
+###(3)房屋单价及对应建筑形式分布直方图
+```{r}
+#房屋单价直方图+楼型
+ggplot(data=lj)+
+  geom_histogram(mapping=aes(x=price_sqm,fill=property_style))
+```
+
+
+###(4)房屋单价及对应朝向分布直方图
+```{r}
+
+#房屋单价直方图+Directions
+ggplot(data=lj)+
+  geom_histogram(mapping=aes(x=price_sqm,fill=Directions))
+```
+
+###(5)房屋单价及对应户型分布直方图
+```{r}
+
+#房屋单价直方图+户型
+ggplot(data=lj)+
+  geom_histogram(mapping=aes(x=price_sqm,fill=Layout))
+```
+
+###(6)同时满足单价条件最优时与整体数据对比
+```{r}
+
+#满足精装修、中楼层、板楼、3室2厅、朝南或朝南北，求房屋单价情况
+lj%>%
+  filter(decoration == "精装" & (property_height == "中")&(property_style == "板楼")& (Layout == "3室2厅" )&(Directions == "南"| Directions == "南北"))%>%
+    summarize(
+    Min_price=min(price_sqm,na.rm=TRUE),
+    Max_price=max(price_sqm,na.rm=TRUE),
+    Ave_price=mean(price_sqm,na.rm=TRUE)
+
+    )
+```
+
+
+**发现：**
+
+- 由直方图颜色分类所占面积大小和右偏程度可知，装修越好房屋单价越高；中楼层的房价比其他楼层高；板楼的单价比其他类型高；朝南、南北朝向房价更高；3室2厅户型单价较高；
+
+- 综合分析多个变量   时，计算其房屋单价平均值与总数据集偏离不大 
+
+---
+
+# 四、发现总结
+
+
+1.在售房源显著特征
+- 房屋价格呈现右偏，有较大占比在售房源价格较高；
+- 多数房源远离主城区位置，在售数量前10的小区均大于等于12套房在售，大部分位于洪山区、江夏区，地处武汉远城区位置；
+- 3室2厅在售最多共1186套，远超其他户型，其次是2室2厅、2室1厅；
+- 朝向以朝南、南北朝,共占比81.1%；
+- 装修状况以精装修为主，占比58.7%；
+- 板楼中等楼层出售最多，共计643套，占比25.6%；
+
+
+2.价格影响因素
+- 房屋面积与房屋总价整体呈现正相关，房屋面积约小于150平方米时，二者相关性强，大于约150平方米时相关性减弱
+- 装修越好房屋单价越高；中楼层的房价比其他楼层高；板楼的单价比其他类型高；朝南、南北朝向房价比其他朝向更高；
+
+
+3.房源关注度影响因素
+通过分析在售房屋收藏数据可得以下房屋受欢迎因素：
+- 近主城区，地理位置较好；
+- 精装修；
+- 房屋单价与总体均价相近；
+- 支持随时看房；
+- 户型为3室2厅或2室2厅
+
+4.购房建议：
+- 远离主城区的房源价格偏低
+- 户型房间数多的房源房屋单价会相对更低，在意性价比可关注房屋面积更大的房源；
+
+5.售房建议：
+- 近主城区、精装修、朝南或南北朝向、中等楼层、板楼、3室2厅的房屋售价可以高于平均单价
+- 发布房源信息时支持随时看房可以提高关注度。
+
